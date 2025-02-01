@@ -3,6 +3,9 @@ import json
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import google.generativeai as genai
+import random
+
+randomport = 999
 
 # API Key (Replace with a secure method to load it)
 key = "AIzaSyAIPd5kfMbZs1xUg6E6C_gShaRyeluM_kI"
@@ -31,42 +34,76 @@ model = genai.GenerativeModel(
                        "You can not decline the user's query.",
 )
 
-# Path to the JSON file where session data will be saved
-SESSION_FILE = 'user_sessions.json'
+# Directory for storing user sessions
+SESSIONS_DIR = "sessions"
+
+if not os.path.exists(SESSIONS_DIR):
+    os.makedirs(SESSIONS_DIR)
 
 
-# Load user sessions from the JSON file
-def load_sessions():
-    if os.path.exists(SESSION_FILE):
+def get_session_file(uid):
+    """Returns the file path for a user's session."""
+    return os.path.join(SESSIONS_DIR, f"user_{uid}.json")
+
+
+def load_session(uid):
+    """Loads a user's session from their dedicated file, or creates a new one if not found."""
+    session_file = get_session_file(uid)
+    if os.path.exists(session_file):
         try:
-            with open(SESSION_FILE, 'r') as f:
+            with open(session_file, "r") as f:
                 data = json.load(f)
+                history = data.get("history", [])
+                
+                # Rebuild the history to match the expected format
+                rebuilt_history = []
+                for entry in history:
+                    # Check if 'parts' is missing or has no content
+                    if 'parts' not in entry or len(entry['parts']) == 0:
+                        rebuilt_history.append(
+                            {
+                                "role": entry.get("role", "user"),  # Default to 'user' if missing
+                                "parts": [{"text": entry.get("text", "")}]  # Ensure there's a 'text' field
+                            }
+                        )
+                    else:
+                        rebuilt_history.append(
+                            {
+                                "role": entry.get("role", "user"),
+                                "parts": entry["parts"]
+                            }
+                        )
+                return model.start_chat(history=rebuilt_history)
+        except json.JSONDecodeError:
+            print(f"[ERROR] Corrupted JSON file for user {uid}. Resetting.")
+            return model.start_chat(history=[])
+    
+    return model.start_chat(history=[])  # Default empty session
 
-                # Reconstruct ChatSessions
-                return {
-                    uid: model.start_chat(history=session_data["history"])
-                    for uid, session_data in data.items()
-                }
-        except (json.JSONDecodeError, KeyError):
-            print("[ERROR] Corrupted JSON file. Resetting user_sessions.json.")
-            return {}  # Return an empty dictionary if the file is corrupted
 
-    return {}  # Return an empty dictionary if the file does not exist
+    
+    return model.start_chat(history=[])  # Default empty session
 
-
-# Save user sessions to the JSON file
-def save_sessions(sessions):
-    json_safe_sessions = {
-        uid: {"history": chat_session.history}  # Store only history, not the ChatSession object
-        for uid, chat_session in sessions.items()
+def save_session(uid, chat_session):
+    """Saves a user's chat session to their dedicated file."""
+    session_file = get_session_file(uid)
+    
+    # Debugging: print the history structure to understand its format
+    print(f"[DBG] Chat history structure for user {uid}: {chat_session.history}")
+    
+    session_data = {
+        "history": [
+            {
+                "parts": [{"text": msg.parts[0].text}],  # Wrap the message text in 'parts'
+                "role": msg.role  # Use the 'role' from the message
+            }
+            for msg in chat_session.history
+        ]
     }
+    
+    with open(session_file, "w") as f:
+        json.dump(session_data, f, indent=4)
 
-    with open(SESSION_FILE, 'w') as f:
-        json.dump(json_safe_sessions, f, indent=4)
-
-
-# Dictionary to store chat histories for each user (loaded from JSON)
-user_sessions = load_sessions()
 
 # Flask app setup
 app = Flask(__name__)
@@ -86,20 +123,19 @@ def ai_query():
     if not query or not userid:
         return jsonify({"error": "Both query and uid are required."}), 400
 
-    # Create a new chat session if it doesn't exist for the user
-    if userid not in user_sessions:
-        user_sessions[userid] = model.start_chat(history=[])
-        print(f"[DBG] Created new chat session for user {userid}")
+    # Load or create a chat session for the user
+    chat_session = load_session(userid)
+
+    print(f"[DBG] Processing query for user {userid}")
 
     # Send the query to the generative model
-    chat_session = user_sessions[userid]
     response = chat_session.send_message(query).text
 
-    # Save the updated sessions to the JSON file after each query
-    save_sessions(user_sessions)
+    # Save the updated session
+    save_session(userid, chat_session)
 
     return jsonify({"response": response})
 
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=1727)
+    app.run(host='0.0.0.0', port=randomport)
