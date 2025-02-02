@@ -5,9 +5,9 @@ from flask_cors import CORS
 import google.generativeai as genai
 import random
 
-randomport = 999
+randomport = 6969
 
-# API Key (Replace with a secure method to load it)
+# API Key
 key = "AIzaSyAIPd5kfMbZs1xUg6E6C_gShaRyeluM_kI"
 
 # Debugging information
@@ -58,12 +58,11 @@ def load_session(uid):
                 # Rebuild the history to match the expected format
                 rebuilt_history = []
                 for entry in history:
-                    # Check if 'parts' is missing or has no content
                     if 'parts' not in entry or len(entry['parts']) == 0:
                         rebuilt_history.append(
                             {
-                                "role": entry.get("role", "user"),  # Default to 'user' if missing
-                                "parts": [{"text": entry.get("text", "")}]  # Ensure there's a 'text' field
+                                "role": entry.get("role", "user"),
+                                "parts": [{"text": entry.get("text", "")}]
                             }
                         )
                     else:
@@ -78,11 +77,8 @@ def load_session(uid):
             print(f"[ERROR] Corrupted JSON file for user {uid}. Resetting.")
             return model.start_chat(history=[])
     
-    return model.start_chat(history=[])  # Default empty session
+    return model.start_chat(history=[])
 
-
-    
-    return model.start_chat(history=[])  # Default empty session
 
 def save_session(uid, chat_session):
     """Saves a user's chat session to their dedicated file."""
@@ -94,8 +90,8 @@ def save_session(uid, chat_session):
     session_data = {
         "history": [
             {
-                "parts": [{"text": msg.parts[0].text}],  # Wrap the message text in 'parts'
-                "role": msg.role  # Use the 'role' from the message
+                "parts": [{"text": msg.parts[0].text}],
+                "role": msg.role
             }
             for msg in chat_session.history
         ]
@@ -138,4 +134,5 @@ def ai_query():
 
 
 if __name__ == '__main__':
+    # Flask will listen on the random port and you can specify the host if needed
     app.run(host='0.0.0.0', port=randomport)
