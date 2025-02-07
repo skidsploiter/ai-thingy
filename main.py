@@ -3,7 +3,6 @@ import json
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import google.generativeai as genai
-import random
 
 randomport = 6969
 
@@ -42,52 +41,39 @@ if not os.path.exists(SESSIONS_DIR):
     os.makedirs(SESSIONS_DIR)
 
 
-def get_session_file(uid):
-    """Returns the file path for a user's session."""
-    return os.path.join(SESSIONS_DIR, f"user_{uid}.json")
+def get_session_file(ip):
+    """Returns the file path for a user's session based on IP."""
+    return os.path.join(SESSIONS_DIR, f"user_{ip.replace('.', '_')}.json")
 
 
-def load_session(uid):
-    """Loads a user's session from their dedicated file, or creates a new one if not found."""
-    session_file = get_session_file(uid)
+def load_session(ip):
+    """Loads a user's session from their IP-based session file, or creates a new one if not found."""
+    session_file = get_session_file(ip)
     if os.path.exists(session_file):
         try:
             with open(session_file, "r") as f:
                 data = json.load(f)
                 history = data.get("history", [])
-                
-                # Rebuild the history to match the expected format
-                rebuilt_history = []
-                for entry in history:
-                    if 'parts' not in entry or len(entry['parts']) == 0:
-                        rebuilt_history.append(
-                            {
-                                "role": entry.get("role", "user"),
-                                "parts": [{"text": entry.get("text", "")}]
-                            }
-                        )
-                    else:
-                        rebuilt_history.append(
-                            {
-                                "role": entry.get("role", "user"),
-                                "parts": entry["parts"]
-                            }
-                        )
+
+                rebuilt_history = [
+                    {
+                        "role": entry.get("role", "user"),
+                        "parts": entry.get("parts", [{"text": entry.get("text", "")}])
+                    }
+                    for entry in history
+                ]
                 return model.start_chat(history=rebuilt_history)
         except json.JSONDecodeError:
-            print(f"[ERROR] Corrupted JSON file for user {uid}. Resetting.")
+            print(f"[ERROR] Corrupted JSON file for IP {ip}. Resetting.")
             return model.start_chat(history=[])
     
     return model.start_chat(history=[])
 
 
-def save_session(uid, chat_session):
-    """Saves a user's chat session to their dedicated file."""
-    session_file = get_session_file(uid)
-    
-    # Debugging: print the history structure to understand its format
-    print(f"[DBG] Chat history structure for user {uid}: {chat_session.history}")
-    
+def save_session(ip, chat_session):
+    """Saves a user's chat session using their IP."""
+    session_file = get_session_file(ip)
+
     session_data = {
         "history": [
             {
@@ -97,7 +83,7 @@ def save_session(uid, chat_session):
             for msg in chat_session.history
         ]
     }
-    
+
     with open(session_file, "w") as f:
         json.dump(session_data, f, indent=4)
 
@@ -115,25 +101,24 @@ def index():
 @app.route('/api/ai', methods=['GET'])
 def ai_query():
     query = request.args.get('query')
-    userid = request.args.get('uid')
+    user_ip = request.remote_addr  # Get user's IP address
 
-    if not query or not userid:
-        return jsonify({"error": "Both query and uid are required."}), 400
+    if not query:
+        return jsonify({"error": "Query parameter is required."}), 400
 
-    # Load or create a chat session for the user
-    chat_session = load_session(userid)
+    # Load or create a chat session based on IP
+    chat_session = load_session(user_ip)
 
-    print(f"[DBG] Processing query for user {userid}")
+    print(f"[DBG] Processing query for IP {user_ip}")
 
     # Send the query to the generative model
     response = chat_session.send_message(query).text
 
     # Save the updated session
-    save_session(userid, chat_session)
+    save_session(user_ip, chat_session)
 
     return jsonify({"response": response})
 
 
 if __name__ == '__main__':
-    # Flask will listen on the random port and you can specify the host if needed
     app.run(host='0.0.0.0', port=randomport)
