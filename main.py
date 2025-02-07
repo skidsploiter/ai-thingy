@@ -112,7 +112,7 @@ def ai_query():
     print(f"[DBG] Processing query for IP {user_ip}")
 
     # Send the query to the generative model
-    response = chat_session.send_message(query).text
+    response = chat_session.send_message(query).text.replace("```lua", '').replace("```", '')
 
     # Save the updated session
     save_session(user_ip, chat_session)
